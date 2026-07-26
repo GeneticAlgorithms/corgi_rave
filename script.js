@@ -6,7 +6,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createProceduralSpaceTexture, createStarfieldPoints } from "./space-background.js";
-import { gestureState, initGestures, stopGestures } from "./gestures.js";
+import { gestureState, initGestures, stopGestures, setAudioLevel } from "./gestures.js";
 
 const canvas = document.getElementById("bg-canvas");
 const audioUploadInput = document.getElementById("audio-upload");
@@ -1968,10 +1968,13 @@ if (raveMode) loadRaveTrack();
 
 // Hand control. Auto-starts with ?hands=1 so nobody has to know about the H
 // key; H still toggles it on and off at any point.
+// mirror=1 for a selfie-facing webcam; default off for the desk rig, where the
+// camera looks down at your hands and flipping x inverts the controls.
 const handOptions = () => ({
   onNextTrack: nextRaveTrack,
   backendBase: raveBackendBase,
   sessionId: raveSessionId,
+  mirror: raveParams.get("mirror") === "1",
 });
 if (raveParams.get("hands") === "1") {
   initGestures(handOptions()).catch((err) => console.error("[hand] autostart failed:", err));
@@ -2238,6 +2241,7 @@ const animate = () => {
   const delta = clock.getDelta();
   const e = getEnergy();
   const audioBoost = Math.pow(Math.max(e.overall, 0), 0.55);
+  setAudioLevel(e.overall); // drives the CORGI OS equaliser strip
 
   scene.position.set(0, 0, 0);
   scene.rotation.set(0, 0, 0);
