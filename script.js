@@ -6,6 +6,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createProceduralSpaceTexture, createStarfieldPoints } from "./space-background.js";
+import { gestureState, initGestures, stopGestures } from "./gestures.js";
 
 const canvas = document.getElementById("bg-canvas");
 const audioUploadInput = document.getElementById("audio-upload");
@@ -1586,6 +1587,70 @@ audioPlayer.addEventListener("play", () => {
   });
 });
 
+// Corgi Rave: load a generated track instead of mic/file-upload, via either
+// ?track=<direct-url> or ?rave=<sessionId>&backend=<base-url> (fetches
+// backend/server.js's GET /rave/:sessionId for { trackUrl, mood, corgiText }).
+const raveParams = new URLSearchParams(window.location.search);
+const raveDirectTrackUrl = raveParams.get("track");
+const raveSessionId = raveParams.get("rave");
+const raveBackendBase = raveParams.get("backend") || "http://localhost:3001";
+const raveMode = Boolean(raveDirectTrackUrl || raveSessionId);
+
+async function resolveRaveTrackUrl() {
+  if (raveDirectTrackUrl) return raveDirectTrackUrl;
+  if (!raveSessionId) return null;
+  try {
+    const res = await fetch(`${raveBackendBase}/rave/${raveSessionId}`);
+    const data = await res.json();
+    return data.trackUrl || null;
+  } catch (err) {
+    console.error("[rave] failed to fetch session:", err);
+    return null;
+  }
+}
+
+let raveTrackLoaded = false;
+async function loadRaveTrack() {
+  if (raveTrackLoaded) return;
+  const url = await resolveRaveTrackUrl();
+  if (!url) return;
+  raveTrackLoaded = true;
+  audioPlayer.src = url;
+  await activateAudioFromPlayer();
+  try {
+    await audioPlayer.play();
+  } catch (err) {
+    console.warn("[rave] autoplay blocked, will retry on first interaction:", err);
+  }
+}
+if (raveMode) loadRaveTrack();
+
+// Swipe-to-skip. Pulls the library from the backend once, then cycles.
+let raveTrackList = null;
+let raveTrackIndex = 0;
+async function nextRaveTrack() {
+  if (!raveTrackList) {
+    try {
+      const res = await fetch(`${raveBackendBase}/tracks`);
+      raveTrackList = (await res.json()).tracks ?? [];
+    } catch (err) {
+      console.warn("[rave] could not load track list:", err);
+      raveTrackList = [];
+    }
+  }
+  if (raveTrackList.length === 0) return;
+  raveTrackIndex = (raveTrackIndex + 1) % raveTrackList.length;
+  const url = raveTrackList[raveTrackIndex];
+  console.log(`[rave] next track -> ${url}`);
+  audioPlayer.src = url;
+  await activateAudioFromPlayer();
+  try {
+    await audioPlayer.play();
+  } catch (err) {
+    console.warn("[rave] play blocked:", err);
+  }
+}
+
 let micAutoStartTried = false;
 async function tryAutoStartMic() {
   if (micAutoStartTried) return;
@@ -1602,7 +1667,11 @@ window.addEventListener("pointerdown", () => {
   if (audioContext?.state === "suspended") {
     audioContext.resume().catch(() => {});
   }
-  tryAutoStartMic();
+  if (raveMode) {
+    if (audioPlayer.src && audioPlayer.paused) audioPlayer.play().catch(() => {});
+  } else {
+    tryAutoStartMic();
+  }
 }, { once: false });
 
 window.addEventListener("keydown", async (event) => {
@@ -1612,6 +1681,11 @@ window.addEventListener("keydown", async (event) => {
     try { await useMic(); } catch (e) { console.error("Microphone access failed:", e); }
   }
   if (event.code === "KeyN") cameraLoopEnabled = !cameraLoopEnabled;
+  if (event.code === "KeyH") {
+    // Hand gestures: palm = intensify, fist = calm, swipe = next track.
+    if (gestureState.enabled) stopGestures();
+    else await initGestures({ onNextTrack: nextRaveTrack });
+  }
   if (event.code === "KeyC") {
     m2Rig.visible = !m2Rig.visible;
     soldierRig.visible = m2Rig.visible;
@@ -1799,6 +1873,10 @@ const getEnergy = () => {
   for (let i = third; i < third * 2; i += 1) mid += frequencyData[i];
   for (let i = third * 2; i < frequencyData.length; i += 1) high += frequencyData[i];
   low = low / third / 255; mid = mid / third / 255; high = high / (frequencyData.length - third * 2) / 255;
+  // Hand gestures act as a fader on the whole reactive chain (rings, particles,
+  // bloom) — open palm pushes past 1.0, a fist pulls it down. 1.0 when off.
+  const g = gestureState.enabled ? gestureState.intensity : 1;
+  low *= g; mid *= g; high *= g;
   return { low, mid, high, overall: (low + mid + high) / 3 };
 };
 

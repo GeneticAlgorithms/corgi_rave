@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.local
+dist
+*.log
+.DS_Store
+
+# Generated/placeholder audio — regenerate with `npm run tracks`
+public/tracks/**/*.mp3
+public/tracks/**/*.wav
+public/tracks/**/*.m4a
+public/tracks/**/*.ogg
