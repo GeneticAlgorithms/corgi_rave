@@ -1,0 +1,8 @@
+assets/
+*.glb
+*.fbx
+*.otf
+nox-rings.html
+app.html
+.DS_Store
+Icon

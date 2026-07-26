@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SF NOX — Audio Reactive Visuals</title>
+    <meta
+      name="description"
+      content="Fullscreen audio-reactive Three.js black hole visualizer."
+    />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="bg-canvas" aria-label="Audio reactive Three.js visualization"></canvas>
+    <input id="audio-upload" type="file" accept="audio/*" hidden />
+    <audio id="audio-player" preload="auto" crossorigin="anonymous"></audio>
+
+    <script type="module" src="./script.js"></script>
+  </body>
+</html>
