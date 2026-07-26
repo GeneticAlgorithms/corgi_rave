@@ -2,7 +2,6 @@ assets/
 *.glb
 *.fbx
 *.otf
-corgi-rave.html
 app.html
 .DS_Store
 Icon
