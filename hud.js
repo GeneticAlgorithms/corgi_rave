@@ -37,8 +37,12 @@ function css() {
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
   -webkit-font-smoothing:antialiased; }
 
-/* angular bracket frame shared by every panel */
-.cos-panel { position:relative; background:linear-gradient(160deg,rgba(3,10,22,.94),rgba(2,7,16,.86));
+/* Angular bracket frame shared by every panel.
+   Deliberately does NOT set position: .cos already sets fixed, and an equal
+   specificity position:relative here silently dropped every panel back into
+   normal flow. .cos-mod sets relative itself since it lives inside a flow
+   container and needs to anchor its ::before/::after brackets. */
+.cos-panel { background:linear-gradient(160deg,rgba(3,10,22,.94),rgba(2,7,16,.86));
   border:2px solid rgba(${CY},.48); backdrop-filter:blur(10px);
   clip-path:polygon(16px 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%,0 16px); }
 .cos-panel::before,.cos-panel::after{ content:""; position:absolute; width:20px; height:20px; }
@@ -69,7 +73,8 @@ function css() {
    Kept high on the right edge: on a desk your hands rest low and centre, and
    anything under them is both occluded and shadowed by the projector. */
 #cos-modules { top:26px; right:26px; display:flex; flex-direction:column; gap:16px; width:360px; }
-.cos-mod { padding:20px 22px; animation:cos-in .4s backwards; overflow:hidden;
+.cos-mod { position:relative; padding:20px 22px; animation:cos-in .4s backwards;
+  overflow:hidden;
   transition:transform .14s cubic-bezier(.2,.8,.3,1), border-color .14s, box-shadow .14s; }
 .cos-mod .top { display:flex; align-items:center; gap:18px; }
 .cos-mod .g { width:52px; height:52px; flex:none; display:grid; place-items:center; font-size:26px;
@@ -257,9 +262,19 @@ export function setStatus({ input, session, link }) {
   if (link !== undefined) els.link.textContent = link;
 }
 
-export function log(msg, isError = false) {
+let stickyUntil = 0;
+
+/**
+ * `stickyMs` holds the message against the per-frame idle updates. Without it
+ * the loop overwrites action results on the very next frame and you never see
+ * them.
+ */
+export function log(msg, isError = false, stickyMs = 0) {
   if (!els.log) return;
+  const now = performance.now();
+  if (now < stickyUntil && stickyMs === 0) return;
   clearInterval(bootTimer);
+  stickyUntil = stickyMs ? now + stickyMs : 0;
   els.log.textContent = msg.toUpperCase();
   els.log.classList.toggle("err", isError);
 }

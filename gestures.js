@@ -134,11 +134,11 @@ async function fireAction(action) {
   lastActionAt = now;
 
   if (action === "next") {
-    hud.log("next track");
+    hud.log("next track", false, 3000);
     try {
       await onNextTrack();
     } catch (err) {
-      hud.log(`track change failed: ${err.message}`, true);
+      hud.log(`track change failed: ${err.message}`, true, 5000);
     }
     return;
   }
@@ -151,12 +151,12 @@ async function fireAction(action) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      hud.log(`${action} rejected — ${data.error ?? res.status}`, true);
+      hud.log(`${action} rejected — ${data.error ?? res.status}`, true, 5000);
       return;
     }
-    hud.log(action === "help" ? "signalling your friend ✓" : "marked all clear ✓");
+    hud.log(action === "help" ? "signalling your friend ✓" : "marked all clear ✓", false, 5000);
   } catch (err) {
-    hud.log(`${action} failed — ${err.message}`, true);
+    hud.log(`${action} failed — ${err.message}`, true, 5000);
   }
 }
 
@@ -169,6 +169,16 @@ function drawFeed(hands) {
   if (!ctx) return;
   const { width: w, height: h } = feedCanvas;
   ctx.clearRect(0, 0, w, h);
+
+  // Dimmed camera image under the skeleton. Without it you cannot tell the
+  // difference between "no hand in frame" and "camera is dead".
+  if (video && video.readyState >= 2) {
+    ctx.save();
+    ctx.globalAlpha = 0.38;
+    ctx.drawImage(video, 0, 0, w, h);
+    ctx.restore();
+  }
+
   hands.forEach((lm, i) => {
     ctx.strokeStyle = i === 0 ? "rgba(150,230,255,.9)" : "rgba(255,205,120,.9)";
     ctx.lineWidth = 2;
@@ -235,7 +245,7 @@ function loop() {
     gestureState.pinching = true;
     hud.setCursor(a.x, a.y, true, true);
     hud.setZoom(a, b, `${Math.round(span)}`);
-    hud.log("two-hand zoom");
+    hud.log(`zoom · ${Math.round(span)}`);
     return;
   }
 
@@ -313,7 +323,7 @@ function loop() {
   }
 
   wasPinching = pinching;
-  if (!pinching && !mod) hud.log("move to aim · pinch to select");
+  if (!pinching && !mod) hud.log(hands.length === 2 ? "two hands · pinch both to zoom" : "tracking");
 }
 
 /* ------------------------------------------------------------------ api -- */
@@ -343,7 +353,7 @@ export async function initGestures(options = {}) {
   // The single most common failure, and silent otherwise: getUserMedia needs a
   // secure context, so a plain-http LAN IP is refused outright.
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    hud.log(`camera blocked — use localhost, not ${location.hostname}`, true);
+    hud.log(`camera blocked — use localhost, not ${location.hostname}`, true, 600000);
     return false;
   }
 
@@ -376,7 +386,7 @@ export async function initGestures(options = {}) {
     loop();
     return true;
   } catch (err) {
-    hud.log(`camera failed — ${err.name || ""} ${err.message}`, true);
+    hud.log(`camera failed — ${err.name || ""} ${err.message}`, true, 600000);
     gestureState.enabled = false;
     return false;
   }
