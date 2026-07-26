@@ -32,12 +32,12 @@ rimLight.position.set(-10, 6, -8);
 scene.add(rimLight);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 120);
-camera.position.set(0, 0, 41);
+camera.position.set(0, 0, 66);
 
 const SETTINGS = {
   orbColor: "#dfedff",
-  bloomStrength: 1.85,
-  bloomThreshold: 0.12,
+  bloomStrength: 1.15,
+  bloomThreshold: 0.2,
   bloomRadiusMin: 0.16,
   bloomRadiusMax: 0.92,
   rippleIntensity: 1.15,
@@ -312,6 +312,7 @@ float snoise(vec3 v) {
 
 const perlinRingGroup = new THREE.Group();
 perlinRingGroup.rotation.set(-Math.PI / 2 + 0.45, 0, 0);
+perlinRingGroup.scale.setScalar(1.8); // widen the ring field / open up the center
 scene.add(perlinRingGroup);
 
 const audioRings = [];
@@ -902,6 +903,285 @@ const gltfLoader = new GLTFLoader();
 gltfLoader.load = () => {};
 let modelLoadState = "idle";
 
+// ===== CORGI RAVE: glowing pastel-blue corgi at the center of the rings =====
+const corgiRig = new THREE.Group();
+corgiRig.position.set(0, 0, 0);
+scene.add(corgiRig);
+let corgiModel = null;
+let corgiBaseScale = 1;
+let corgiMixer = null;
+const corgiWireMats = [];
+const corgiGlowMats = [];
+const corgiKey = new THREE.DirectionalLight(0xbfe0ff, 0.75);
+corgiKey.position.set(5, 9, 7);
+const corgiRim = new THREE.PointLight(0x7fd0ff, 0.45, 60);
+corgiRim.position.set(-6, 3, -6);
+const corgiFill = new THREE.PointLight(0x9fd8ff, 0.35, 50);
+corgiFill.position.set(6, 2, 8);
+corgiRig.add(corgiKey, corgiRim, corgiFill);
+
+// dynamic perlin-noise orb that orbits the corgi (shares the live audio uniforms)
+const corgiOrbUniforms = {
+  u_time: uniforms.u_time,
+  u_energy: uniforms.u_energy,
+  u_low: uniforms.u_low,
+  u_mid: uniforms.u_mid,
+  u_high: uniforms.u_high,
+  u_click: uniforms.u_click,
+  u_color: { value: new THREE.Color("#a8ddff") },
+  u_intensity: { value: 1.25 },
+  u_alpha: { value: 0.92 },
+};
+const corgiOrb = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(8.5, 32),
+  new THREE.ShaderMaterial({
+    uniforms: corgiOrbUniforms,
+    vertexShader,
+    fragmentShader,
+    wireframe: true,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    depthWrite: false,
+  })
+);
+scene.add(corgiOrb);
+
+// giant perlin-mesh dome that encapsulates the whole scene (ambient morph, not audio-reactive)
+const perlinDomeUniforms = {
+  u_time: { value: 0 },
+  u_energy: { value: 0 },
+  u_low: { value: 0 },
+  u_mid: { value: 0 },
+  u_high: { value: 0 },
+  u_click: { value: 0 },
+  u_color: { value: new THREE.Color("#6a90c8") },
+  u_intensity: { value: 0.32 },
+  u_alpha: { value: 0.16 },
+};
+const perlinDome = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(140, 5),
+  new THREE.ShaderMaterial({
+    uniforms: perlinDomeUniforms,
+    vertexShader,
+    fragmentShader,
+    wireframe: true,
+    transparent: true,
+    side: THREE.BackSide, // seen from inside → encloses everything
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  })
+);
+scene.add(perlinDome);
+
+// glowing perlin wireframe ball that encapsulates the ring system (huge, ambient morph)
+const ringOrbUniforms = {
+  u_time: { value: 0 },
+  u_energy: { value: 0 },
+  u_low: { value: 0 },
+  u_mid: { value: 0 },
+  u_high: { value: 0 },
+  u_click: { value: 0 },
+  u_color: { value: new THREE.Color("#9ec8ff") },
+  u_intensity: { value: 0.55 },
+  u_alpha: { value: 0.28 },
+};
+const ringOrb = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(46, 5),
+  new THREE.ShaderMaterial({
+    uniforms: ringOrbUniforms,
+    vertexShader,
+    fragmentShader,
+    wireframe: true,
+    transparent: true,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  })
+);
+scene.add(ringOrb);
+
+// ===== scene dressing: dance floor, companion orb, comet trail, dust, shooting stars =====
+
+// neon dance floor grid beneath the corgi (scrolls by translation — no spin)
+const danceFloor = new THREE.GridHelper(400, 80, 0x7fb9ff, 0x2c4a7d);
+danceFloor.material.transparent = true;
+danceFloor.material.opacity = 0.3;
+danceFloor.material.blending = THREE.AdditiveBlending;
+danceFloor.material.depthWrite = false;
+danceFloor.position.y = -14;
+scene.add(danceFloor);
+
+// small pink companion orb, counter-orbiting the corgi (perlin, audio-reactive like its sibling)
+const companionOrbUniforms = {
+  u_time: uniforms.u_time,
+  u_energy: uniforms.u_energy,
+  u_low: uniforms.u_low,
+  u_mid: uniforms.u_mid,
+  u_high: uniforms.u_high,
+  u_click: uniforms.u_click,
+  u_color: { value: new THREE.Color("#ffb6e0") },
+  u_intensity: { value: 0.9 },
+  u_alpha: { value: 0.8 },
+};
+const companionOrb = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(4.2, 24),
+  new THREE.ShaderMaterial({
+    uniforms: companionOrbUniforms,
+    vertexShader,
+    fragmentShader,
+    wireframe: true,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  })
+);
+scene.add(companionOrb);
+
+// comet trail behind the main orb
+const TRAIL_N = 140;
+const trailPositions = new Float32Array(TRAIL_N * 3).fill(9999);
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPositions, 3));
+const trail = new THREE.Points(
+  trailGeo,
+  new THREE.PointsMaterial({
+    color: "#a8ddff", size: 0.55, transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  })
+);
+scene.add(trail);
+
+// drifting dust motes
+const MOTES = 450;
+const motePositions = new Float32Array(MOTES * 3);
+const moteSpeeds = new Float32Array(MOTES);
+for (let i = 0; i < MOTES; i += 1) {
+  motePositions[i * 3] = (Math.random() - 0.5) * 220;
+  motePositions[i * 3 + 1] = -20 + Math.random() * 65;
+  motePositions[i * 3 + 2] = (Math.random() - 0.5) * 220;
+  moteSpeeds[i] = 0.01 + Math.random() * 0.035;
+}
+const moteGeo = new THREE.BufferGeometry();
+moteGeo.setAttribute("position", new THREE.BufferAttribute(motePositions, 3));
+const motes = new THREE.Points(
+  moteGeo,
+  new THREE.PointsMaterial({
+    color: "#cfe3ff", size: 0.32, transparent: true, opacity: 0.45,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  })
+);
+scene.add(motes);
+
+// occasional shooting star
+const shootPts = new Float32Array(6);
+const shootGeo = new THREE.BufferGeometry();
+shootGeo.setAttribute("position", new THREE.BufferAttribute(shootPts, 3));
+const shootLine = new THREE.Line(
+  shootGeo,
+  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
+);
+scene.add(shootLine);
+const shootState = { t: 2, from: new THREE.Vector3(), dir: new THREE.Vector3(), next: 4 };
+
+// dedicated loader (the main gltfLoader is no-op'd in rings-only mode)
+const corgiLoader = new GLTFLoader();
+corgiLoader.load(
+  "./corgi_dog.glb",
+  (gltf) => {
+    const model = gltf.scene;
+
+    // pastel-blue glow tint on the corgi's own materials
+    const tint = (m) => {
+      const mm = m.clone();
+      if (mm.color) mm.color.lerp(new THREE.Color("#cfeaff"), 0.12);
+      if ("emissive" in mm) { mm.emissive = new THREE.Color("#2f6ab0"); mm.emissiveIntensity = 0.06; }
+      mm.side = THREE.DoubleSide;
+      return mm;
+    };
+    model.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      obj.material = Array.isArray(obj.material) ? obj.material.map(tint) : tint(obj.material);
+    });
+
+    // normalize size + center so it sits inside the rings
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const targetSize = 18; // large centerpiece within the widened rings
+    const scale = targetSize / maxDim;
+    model.scale.setScalar(scale);
+    model.position.copy(center).multiplyScalar(-scale); // center at origin
+    corgiBaseScale = scale;
+    corgiRig.add(model);
+    corgiModel = model;
+
+    // ethereal aura: fresnel rim-glow shell + a faint wireframe envelope
+    const glowTargets = [];
+    model.traverse((o) => { if (o.isMesh && o.geometry) glowTargets.push(o); });
+    for (const o of glowTargets) {
+      // soft fresnel halo that lights up at the silhouette → ethereal edge glow
+      const glowMat = new THREE.ShaderMaterial({
+        uniforms: {
+          u_time: { value: 0 },
+          u_color: { value: new THREE.Color("#9ad8ff") },
+          u_intensity: { value: 0.28 },
+        },
+        vertexShader: `
+          varying float vF;
+          void main() {
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            vec3 n = normalize(normalMatrix * normal);
+            vec3 v = normalize(-mv.xyz);
+            vF = pow(1.0 - max(dot(n, v), 0.0), 2.2);
+            vec3 disp = position + normal * 0.03;   // slight inflate -> outer halo
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(disp, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 u_color; uniform float u_intensity; varying float vF;
+          void main() {
+            float glow = vF * u_intensity;
+            gl_FragColor = vec4(u_color * (0.03 + glow * 1.1), clamp(glow, 0.0, 0.3));
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const glow = new THREE.Mesh(o.geometry, glowMat);
+      glow.renderOrder = 2;
+      o.add(glow);
+      corgiGlowMats.push(glowMat);
+
+      // faint wireframe envelope for the "mesh" motif
+      const wire = new THREE.Mesh(
+        o.geometry,
+        new THREE.MeshBasicMaterial({
+          color: "#bfe8ff", wireframe: true, transparent: true, opacity: 0.08,
+          blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+        })
+      );
+      wire.renderOrder = 3;
+      o.add(wire);
+      corgiWireMats.push(wire.material);
+    }
+
+    // built-in animation clips are intentionally NOT played (they were spinning the model)
+    console.log("[corgi] loaded", { scale, animations: gltf.animations?.length || 0 });
+  },
+  undefined,
+  (err) => console.error("corgi_dog.glb failed to load:", err)
+);
+
 const prophetRig = new THREE.Group();
 prophetRig.position.set(0, -2, 3);
 scene.add(prophetRig);
@@ -1381,7 +1661,7 @@ controls.panSpeed = 0.8;
 controls.rotateSpeed = 0.8;
 controls.zoomSpeed = 1.1;
 controls.minDistance = 1.2;
-controls.maxDistance = 42;
+controls.maxDistance = 90;
 
 function initDragData(object) {
   if (!object.userData.dragOffset) object.userData.dragOffset = new THREE.Vector3();
@@ -1659,7 +1939,7 @@ const choreoState = {
   endsAt: 1.5 + Math.random() * 3.5,
 };
 let userInteracting = false;
-let cameraLoopEnabled = true;
+let cameraLoopEnabled = false; // no auto camera orbit (was spinning the whole scene)
 
 function setCRigsVisible(v) {
   m2Rig.visible = v;
@@ -1687,7 +1967,7 @@ function runAutoCFlicker() {
 setTimeout(runAutoCFlicker, 120000);
 controls.addEventListener("start", () => { userInteracting = true; });
 controls.addEventListener("end",   () => { userInteracting = false; });
-camera.position.set(0, 0, 41);
+camera.position.set(0, 0, 66);
 controls.target.set(0, 0, 0);
 controls.update();
 const _beatOffset = new THREE.Vector3();
@@ -2056,11 +2336,10 @@ const animate = () => {
     }
   }
 
-  starfield.rotation.y += 0.00008 + e.low * 0.00025;
-  starfield.rotation.x = Math.sin(elapsed * 0.05) * 0.015;
+  // starfield stays; gentle time-based twinkle only, not audio-reactive, no spin
   starfield.material.uniforms.u_time.value = elapsed;
-  starfield.material.uniforms.u_energy.value = e.overall;
-  starfield.material.uniforms.u_high.value = e.high;
+  starfield.material.uniforms.u_energy.value = 0;
+  starfield.material.uniforms.u_high.value = 0;
 
   if (!SETTINGS.blackHoleOnly) {
     for (const bigOrb of bigOrbs) {
@@ -2297,40 +2576,140 @@ const animate = () => {
     }
   }
 
-  const bandsForRings = [e.low, e.mid, e.high];
+  // CORGI RAVE: procedural dance (bouncy hops + sway + head bob, bounded wiggles = no spin)
+  if (corgiModel) {
+    const beat = elapsed * 2.6;                          // dance tempo
+    const hop = Math.abs(Math.sin(beat)) * 1.8;          // springy up-hops
+    corgiRig.position.set(
+      dragonRig.position.x + Math.sin(beat * 0.5) * 0.7, // little side step
+      dragonRig.position.y + hop,
+      dragonRig.position.z
+    );
+    corgiRig.rotation.z = Math.sin(beat) * 0.13;         // sway side to side
+    corgiRig.rotation.y = Math.sin(beat * 0.5) * 0.22;   // playful twist (oscillates, not a spin)
+    corgiRig.rotation.x = Math.sin(beat * 2) * 0.05;     // head bob
+    const stretch = 1 + Math.sin(beat) * 0.06;           // squash & stretch on the bounce
+    corgiModel.scale.set(corgiBaseScale / stretch, corgiBaseScale * stretch, corgiBaseScale / stretch);
+    // fluctuating soft glow
+    const aura = 0.12 + Math.sin(elapsed * 1.2) * 0.1;
+    for (const gm of corgiGlowMats) { gm.uniforms.u_time.value = elapsed; gm.uniforms.u_intensity.value = aura; }
+    for (const wm of corgiWireMats) wm.opacity = 0.0;
+    corgiModel.traverse((o) => {
+      if (o.isMesh && o.material && "emissiveIntensity" in o.material) {
+        o.material.emissiveIntensity = 0.04 + Math.sin(elapsed * 1.2) * 0.04;
+      }
+    });
+  }
+
+  // dynamic perlin orb orbiting the corgi
+  if (corgiOrb) {
+    const rad = 22 + e.overall * 3; // wide orbit so the much bigger orb clears the corgi
+    const a = elapsed * 0.5;
+    corgiOrb.position.set(
+      corgiRig.position.x + Math.cos(a) * rad,
+      corgiRig.position.y + Math.sin(elapsed * 0.9) * 4.5,
+      corgiRig.position.z + Math.sin(a) * rad
+    );
+    corgiOrb.scale.setScalar(1 + e.overall * 0.6 + e.low * 0.35 + Math.sin(elapsed * 2.6) * 0.08);
+    // glow intensity fluctuates (audio + a steady breathing pulse)
+    corgiOrbUniforms.u_intensity.value = 1.0 + e.overall * 0.8 + e.high * 0.5 + Math.sin(elapsed * 1.6) * 0.55;
+  }
+
+  // giant enclosing perlin dome — slow ambient morph, no spin, not audio-reactive
+  if (perlinDome) {
+    perlinDomeUniforms.u_time.value = elapsed * 0.3;
+  }
+
+  // glowing perlin ball wrapping the rings — ambient morph + slow hue drift
+  if (ringOrb) {
+    ringOrbUniforms.u_time.value = elapsed * 0.5;
+    ringOrbUniforms.u_color.value.setHSL(0.58 + Math.sin(elapsed * 0.05) * 0.09, 0.55, 0.62);
+  }
+  perlinDomeUniforms.u_color.value.setHSL(0.6 + Math.sin(elapsed * 0.03) * 0.12, 0.45, 0.55);
+
+  // dance floor: slow scroll toward camera + soft breathing
+  danceFloor.position.z = (elapsed * 2.0) % 5;
+  danceFloor.material.opacity = 0.24 + Math.sin(elapsed * 0.7) * 0.06;
+
+  // pink companion orb counter-orbits (opposite direction, lower path)
+  {
+    const rad2 = 16 + e.overall * 2.2;
+    const a2 = -elapsed * 0.7 + Math.PI;
+    companionOrb.position.set(
+      corgiRig.position.x + Math.cos(a2) * rad2,
+      corgiRig.position.y + 2 + Math.sin(elapsed * 1.1) * 3,
+      corgiRig.position.z + Math.sin(a2) * rad2
+    );
+    companionOrb.scale.setScalar(1 + e.overall * 0.5 + e.high * 0.3 + Math.sin(elapsed * 3.1) * 0.07);
+    companionOrbUniforms.u_intensity.value = 0.8 + e.overall * 0.7 + Math.sin(elapsed * 1.9) * 0.35;
+  }
+
+  // comet trail: history of the main orb's positions
+  for (let i = TRAIL_N - 1; i > 0; i -= 1) {
+    trailPositions[i * 3] = trailPositions[(i - 1) * 3];
+    trailPositions[i * 3 + 1] = trailPositions[(i - 1) * 3 + 1];
+    trailPositions[i * 3 + 2] = trailPositions[(i - 1) * 3 + 2];
+  }
+  trailPositions[0] = corgiOrb.position.x;
+  trailPositions[1] = corgiOrb.position.y;
+  trailPositions[2] = corgiOrb.position.z;
+  trailGeo.attributes.position.needsUpdate = true;
+
+  // dust motes drift upward and recycle
+  for (let i = 0; i < MOTES; i += 1) {
+    motePositions[i * 3 + 1] += moteSpeeds[i];
+    motePositions[i * 3] += Math.sin(elapsed * 0.4 + i) * 0.004;
+    if (motePositions[i * 3 + 1] > 48) motePositions[i * 3 + 1] = -20;
+  }
+  moteGeo.attributes.position.needsUpdate = true;
+
+  // shooting stars every few seconds
+  if (elapsed > shootState.next) {
+    shootState.t = 0;
+    shootState.from.set((Math.random() - 0.5) * 180, 45 + Math.random() * 30, -70 - Math.random() * 40);
+    shootState.dir.set(-(30 + Math.random() * 50) * (Math.random() < 0.5 ? 1 : -1), -(18 + Math.random() * 18), 0);
+    shootState.next = elapsed + 5 + Math.random() * 9;
+  }
+  if (shootState.t < 1) {
+    shootState.t += delta * 0.9;
+    const hx = shootState.from.x + shootState.dir.x * shootState.t;
+    const hy = shootState.from.y + shootState.dir.y * shootState.t;
+    const hz = shootState.from.z;
+    const tt = Math.max(0, shootState.t - 0.12);
+    shootPts.set([hx, hy, hz, shootState.from.x + shootState.dir.x * tt, shootState.from.y + shootState.dir.y * tt, hz]);
+    shootGeo.attributes.position.needsUpdate = true;
+    shootLine.material.opacity = 0.7 * Math.max(0, 1 - shootState.t);
+  } else {
+    shootLine.material.opacity = 0;
+  }
+
   perlinRingGroup.position.copy(dragonRig.position);
-  perlinRingGroup.rotation.x = -Math.PI / 2 + 0.45 + Math.sin(elapsed * 0.21) * 0.05;
-  perlinRingGroup.rotation.z = Math.cos(elapsed * 0.17) * 0.04;
+  perlinRingGroup.rotation.x = -Math.PI / 2 + 0.45;
+  perlinRingGroup.rotation.z = 0;
   for (const ring of audioRings) {
     const ud = ring.userData;
-    const bandEnergy = bandsForRings[ud.band] ?? e.overall;
-    const target = bandEnergy * 1.3 + e.overall * 0.4;
-    ud.peak = Math.max(target, ud.peak * 0.90);
-    const peak = ud.peak;
-    const reactiveSpin = 1 + peak * 5.0;
-    ring.rotation.x += ud.spinX * 0.13 * reactiveSpin;
-    ring.rotation.y += ud.spinY * 0.13 * reactiveSpin;
-    ring.rotation.z += ud.spinZ * 0.13 * reactiveSpin + cursorNdc.x * RING_SPIN_SPEED;
-    const s = ud.baseScale * (1 + peak * ud.scaleAmp + e.overall * 0.12);
-    ring.scale.setScalar(s);
+    ring.scale.setScalar(ud.baseScale); // static size (not audio-reactive)
+
+    // only the orange ring (the gold torus knot) spins
+    if (ud.type === "knot") {
+      ring.rotation.z += 0.012;
+      ring.rotation.y += 0.006;
+    }
 
     if (ud.type === "perlin") {
       const u = ring.material.uniforms;
-      u.u_time.value = elapsed;
-      u.u_peak.value = peak;
-      u.u_intensity.value = 1.4 + e.overall * 0.7;
+      u.u_time.value = elapsed; // ambient noise animation (time-based, not audio)
+      u.u_peak.value = 0;
+      u.u_intensity.value = 1.4;
     } else if (ud.type === "torus" || ud.type === "knot") {
-      const flash = 1 + peak * 1.6 + Math.sin(elapsed * 2.0) * 0.08;
-      ring.material.color.copy(ud.baseColor).multiplyScalar(flash);
-      ring.material.opacity = 0.75 + peak * 0.25;
+      ring.material.color.copy(ud.baseColor);
+      ring.material.opacity = 0.85;
     } else if (ud.type === "beads") {
-      const flash = 1 + peak * 2.2;
       for (let i = 0; i < ud.beads.length; i += 1) {
         const b = ud.beads[i];
-        const beadPulse = 1 + peak * 1.4 + Math.sin(elapsed * 4.0 + b.userData.phase) * 0.18;
-        b.scale.setScalar(beadPulse);
-        b.material.color.copy(ud.baseColor).multiplyScalar(flash);
-        b.material.opacity = 0.7 + peak * 0.3;
+        b.scale.setScalar(1);
+        b.material.color.copy(ud.baseColor);
+        b.material.opacity = 0.8;
       }
     }
   }
