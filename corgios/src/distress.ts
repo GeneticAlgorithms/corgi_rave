@@ -119,6 +119,28 @@ async function startCountdown(session: Session): Promise<void> {
 }
 
 /**
+ * Hands-free entry point, raised by a hand gesture on the visualizer wall
+ * rather than a typed message — you can't text from the middle of a dancefloor.
+ *
+ * Deliberately routed through the SAME countdown as a typed trigger so it stays
+ * cancellable; a gesture is easier to make by accident than a sentence.
+ */
+export async function requestHelp(session: Session): Promise<void> {
+  if (session.distress.active) return;
+  console.log(`[distress] help requested by gesture on session ${session.id}`);
+  await session.space.send(await draftReassurance());
+  await startCountdown(session);
+}
+
+/** Hands-free "I'm good" — cancels a running countdown from the wall. */
+export async function signalOk(session: Session): Promise<boolean> {
+  if (!session.distress.active) return false;
+  cancelCountdown(session);
+  await session.space.send("okay, saw your thumbs up. glad you're alright. 🐶");
+  return true;
+}
+
+/**
  * Returns true if the message was consumed by the distress flow.
  */
 export async function handleMessage(session: Session, text: string): Promise<boolean> {

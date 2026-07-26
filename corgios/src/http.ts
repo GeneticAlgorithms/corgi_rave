@@ -5,6 +5,7 @@ import path from "node:path";
 import { config } from "./config.ts";
 import { PUBLIC_DIR } from "./music.ts";
 import * as sessions from "./sessions.ts";
+import * as distress from "./distress.ts";
 
 const MIME: Record<string, string> = {
   ".mp3": "audio/mpeg",
@@ -20,6 +21,20 @@ const MIME: Record<string, string> = {
  */
 function cors(res: http.ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+}
+
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (c) => {
+      data += c;
+      if (data.length > 1e6) req.destroy(); // don't buffer unbounded input
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
 }
 
 async function serveStatic(urlPath: string, res: http.ServerResponse): Promise<boolean> {
@@ -74,6 +89,37 @@ export function startHttpServer(): http.Server {
             corgiText: session.corgiText,
           }),
         );
+        return;
+      }
+
+      // POST /gesture — hand gestures on the wall trigger real actions.
+      // { action: "help" | "ok", sessionId?: string }
+      if (req.method === "POST" && url.pathname === "/gesture") {
+        cors(res);
+        const body = await readBody(req);
+        const { action, sessionId } = JSON.parse(body || "{}") as {
+          action?: string;
+          sessionId?: string;
+        };
+
+        const session = sessionId ? sessions.get(sessionId) : sessions.latest();
+        if (!session) {
+          res.writeHead(409, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "no_active_session" }));
+          return;
+        }
+
+        console.log(`[gesture] ${action} -> session ${session.id}`);
+        if (action === "help") await distress.requestHelp(session);
+        else if (action === "ok") await distress.signalOk(session);
+        else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "unknown_action" }));
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, action, sessionId: session.id }));
         return;
       }
 

@@ -48,6 +48,16 @@ export function get(sessionId: string): Session | null {
   return bySessionId.get(sessionId) ?? null;
 }
 
+/**
+ * Most recently created session. The visualizer may be opened with a bare
+ * ?track= URL (no session id), so gesture actions fall back to this.
+ */
+export function latest(): Session | null {
+  let found: Session | null = null;
+  for (const s of bySessionId.values()) found = s;
+  return found;
+}
+
 export function getBySpace(spaceId: string): Session | null {
   const id = bySpaceId.get(spaceId);
   return id ? (bySessionId.get(id) ?? null) : null;

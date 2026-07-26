@@ -1,5 +1,8 @@
 assets/
 *.glb
+# ...except the corgi centrepiece — script.js loads this at runtime, and the
+# blanket *.glb rule above is why it silently never got committed.
+!corgi_dog.glb
 *.fbx
 *.otf
 app.html

@@ -30,6 +30,14 @@ const SWIPE_WINDOW_MS = 420;
 const SWIPE_COOLDOWN_MS = 1600;
 
 /**
+ * Gestures that fire a real action (a text to a real person) must be HELD.
+ * A momentary pose is far too easy to hit by accident while dancing, and the
+ * cost of a false positive here is someone's phone ringing at 1am.
+ */
+const HOLD_MS = 1500;
+const ACTION_COOLDOWN_MS = 8000;
+
+/**
  * Read by script.js's getEnergy(). `intensity` is a multiplier on audio energy,
  * eased toward its target so gestures feel like a fader, not a switch.
  */
@@ -52,6 +60,36 @@ const swipeTrail = [];
 let lastSwipeAt = 0;
 let onNextTrack = () => {};
 
+// Hold-to-confirm state for the action poses.
+const ACTIONS = { peace: "help", thumbsup: "ok" };
+let holdPose = null;
+let holdStart = 0;
+let lastActionAt = 0;
+let backendBase = "http://localhost:3001";
+let sessionId = null;
+
+/** Fires a real action on the backend — a text to a real person. */
+async function fireAction(action) {
+  try {
+    const res = await fetch(`${backendBase}/gesture`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, sessionId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn(`[gesture] ${action} rejected (${res.status}):`, data.error ?? "");
+      gestureState.label = `${action} failed: ${data.error ?? res.status}`;
+      return;
+    }
+    console.log(`[gesture] ${action} sent`, data);
+    gestureState.label = action === "help" ? "help sent ✓" : "marked ok ✓";
+  } catch (err) {
+    console.warn(`[gesture] ${action} failed:`, err);
+    gestureState.label = `${action} failed`;
+  }
+}
+
 function buildUi() {
   hud = document.createElement("div");
   hud.style.cssText = `
@@ -73,13 +111,32 @@ function buildUi() {
   overlayCtx = overlay.getContext("2d");
 }
 
-function classify(lm) {
+function isUp(lm, finger) {
   // In image space y grows downward, so an extended finger has its tip ABOVE
   // (smaller y than) its PIP joint.
-  let extended = 0;
-  for (const finger of Object.keys(TIPS)) {
-    if (lm[TIPS[finger]].y < lm[PIPS[finger]].y - 0.02) extended++;
-  }
+  return lm[TIPS[finger]].y < lm[PIPS[finger]].y - 0.02;
+}
+
+function classify(lm) {
+  const up = {
+    index: isUp(lm, "index"),
+    middle: isUp(lm, "middle"),
+    ring: isUp(lm, "ring"),
+    pinky: isUp(lm, "pinky"),
+  };
+  const extended = Object.values(up).filter(Boolean).length;
+
+  // Thumb points sideways, not up, so it needs its own test: tip further from
+  // the wrist than the IP joint, and clearly above the index knuckle.
+  const thumbOut =
+    Math.hypot(lm[4].x - lm[WRIST].x, lm[4].y - lm[WRIST].y) >
+      Math.hypot(lm[3].x - lm[WRIST].x, lm[3].y - lm[WRIST].y) * 1.15 &&
+    lm[4].y < lm[5].y;
+
+  // Action poses first — they are stricter than the analogue ones.
+  if (up.index && up.middle && !up.ring && !up.pinky) return "peace";
+  if (extended === 0 && thumbOut) return "thumbsup";
+
   if (extended >= 4) return "palm";
   if (extended === 0) return "fist";
   return "neutral";
@@ -143,19 +200,43 @@ function loop() {
   if (!lm) {
     target = INTENSITY.neutral;
     gestureState.label = "";
+    holdPose = null;
     swipeTrail.length = 0;
     draw(null);
   } else {
     const pose = classify(lm);
-    target = INTENSITY[pose];
+    // Action poses don't drive the visual fader; they're discrete commands.
+    target = INTENSITY[pose] ?? INTENSITY.neutral;
     gestureState.label = pose;
 
-    if (pose !== "fist" && detectSwipe(lm, now)) {
-      gestureState.label = "swipe → next";
-      try {
-        onNextTrack();
-      } catch (err) {
-        console.warn("[gesture] onNextTrack failed:", err);
+    const action = ACTIONS[pose];
+    if (action) {
+      if (holdPose !== pose) {
+        holdPose = pose;
+        holdStart = now;
+      }
+      const held = now - holdStart;
+      if (held >= HOLD_MS) {
+        if (now - lastActionAt > ACTION_COOLDOWN_MS) {
+          lastActionAt = now;
+          holdPose = null;
+          void fireAction(action);
+        }
+      } else {
+        // Visible countdown — the user (and the audience) can see it arming,
+        // and can bail out before anything is sent.
+        const pct = Math.round((held / HOLD_MS) * 100);
+        gestureState.label = `${pose} → ${action} ${pct}%`;
+      }
+    } else {
+      holdPose = null;
+      if (pose !== "fist" && detectSwipe(lm, now)) {
+        gestureState.label = "swipe → next";
+        try {
+          onNextTrack();
+        } catch (err) {
+          console.warn("[gesture] onNextTrack failed:", err);
+        }
       }
     }
     draw(lm);
@@ -172,6 +253,8 @@ function loop() {
 export async function initGestures(options = {}) {
   if (gestureState.enabled) return true;
   onNextTrack = options.onNextTrack ?? onNextTrack;
+  backendBase = options.backendBase ?? backendBase;
+  sessionId = options.sessionId ?? sessionId;
 
   try {
     const { HandLandmarker, FilesetResolver } = await import(
@@ -202,7 +285,10 @@ export async function initGestures(options = {}) {
     buildUi();
     gestureState.enabled = true;
     loop();
-    console.log("[gesture] hand tracking active — palm=intensify fist=calm swipe=next");
+    console.log(
+      "[gesture] active — palm=intensify fist=calm swipe=next " +
+        `| hold ✌️=help 👍=ok (${HOLD_MS}ms) -> ${backendBase}/gesture`,
+    );
     return true;
   } catch (err) {
     console.error("[gesture] init failed:", err);

@@ -1090,11 +1090,12 @@ const shootState = { t: 2, from: new THREE.Vector3(), dir: new THREE.Vector3(), 
 
 // dedicated loader (the main gltfLoader is no-op'd in rings-only mode)
 const corgiLoader = new GLTFLoader();
-corgiLoader.load(
-  "./corgi_dog.glb",
-  (gltf) => {
-    const model = gltf.scene;
-
+/**
+ * Tints, normalizes, centers and auras a corgi model, then installs it in the
+ * rig. Shared by the .glb path and the procedural fallback below, so both look
+ * identical downstream (same glow shell, same wireframe, same dance).
+ */
+function dressCorgi(model, source) {
     // pastel-blue glow tint on the corgi's own materials
     const tint = (m) => {
       const mm = m.clone();
@@ -1177,10 +1178,70 @@ corgiLoader.load(
     }
 
     // built-in animation clips are intentionally NOT played (they were spinning the model)
-    console.log("[corgi] loaded", { scale, animations: gltf.animations?.length || 0 });
-  },
+    console.log(`[corgi] installed (${source})`, { scale });
+}
+
+/**
+ * Fallback corgi built from primitives, used when corgi_dog.glb is absent.
+ * Low and long with stubby legs and big ears — reads as a corgi in silhouette,
+ * which is all that survives the wireframe + bloom treatment anyway.
+ */
+function buildProceduralCorgi() {
+  const g = new THREE.Group();
+  const coat = new THREE.MeshStandardMaterial({
+    color: "#e8b98a", roughness: 0.72, metalness: 0.04,
+    emissive: new THREE.Color("#2f6ab0"), emissiveIntensity: 0.06,
+  });
+  const cream = new THREE.MeshStandardMaterial({
+    color: "#fbf1e2", roughness: 0.68, metalness: 0.03,
+    emissive: new THREE.Color("#2f6ab0"), emissiveIntensity: 0.06,
+  });
+  const dark = new THREE.MeshStandardMaterial({ color: "#2b2118", roughness: 0.5 });
+
+  const add = (geo, mat, [x, y, z], rot) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+    g.add(m);
+    return m;
+  };
+
+  // long low barrel body
+  add(new THREE.CapsuleGeometry(1.05, 2.5, 8, 20), coat, [0, 0, 0], [0, 0, Math.PI / 2]);
+  add(new THREE.CapsuleGeometry(0.86, 1.5, 8, 18), cream, [0, -0.42, 0], [0, 0, Math.PI / 2]);
+
+  // head, snout, nose
+  const head = add(new THREE.SphereGeometry(0.92, 24, 20), coat, [2.15, 0.72, 0]);
+  head.scale.set(1, 0.95, 0.92);
+  add(new THREE.CapsuleGeometry(0.36, 0.42, 6, 14), cream, [2.95, 0.42, 0], [0, 0, Math.PI / 2]);
+  add(new THREE.SphereGeometry(0.16, 12, 10), dark, [3.32, 0.5, 0]);
+  add(new THREE.SphereGeometry(0.12, 12, 10), dark, [2.62, 0.95, 0.42]);
+  add(new THREE.SphereGeometry(0.12, 12, 10), dark, [2.62, 0.95, -0.42]);
+
+  // the ears — a corgi is mostly ears
+  add(new THREE.ConeGeometry(0.34, 0.95, 14), coat, [1.92, 1.62, 0.46], [0, 0, -0.16]);
+  add(new THREE.ConeGeometry(0.34, 0.95, 14), coat, [1.92, 1.62, -0.46], [0, 0, 0.16]);
+
+  // four stubby legs
+  for (const [x, z] of [[1.35, 0.66], [1.35, -0.66], [-1.3, 0.66], [-1.3, -0.66]]) {
+    add(new THREE.CylinderGeometry(0.27, 0.24, 0.95, 12), cream, [x, -1.2, z]);
+    add(new THREE.SphereGeometry(0.28, 12, 10), cream, [x, -1.62, z]);
+  }
+
+  // fluffy nub tail
+  add(new THREE.SphereGeometry(0.42, 14, 12), coat, [-1.95, 0.35, 0]);
+
+  return g;
+}
+
+corgiLoader.load(
+  "./corgi_dog.glb",
+  (gltf) => dressCorgi(gltf.scene, "glb"),
   undefined,
-  (err) => console.error("corgi_dog.glb failed to load:", err)
+  () => {
+    console.warn("[corgi] corgi_dog.glb not found — using the procedural corgi.");
+    dressCorgi(buildProceduralCorgi(), "procedural");
+  }
 );
 
 const prophetRig = new THREE.Group();
@@ -1964,7 +2025,12 @@ window.addEventListener("keydown", async (event) => {
   if (event.code === "KeyH") {
     // Hand gestures: palm = intensify, fist = calm, swipe = next track.
     if (gestureState.enabled) stopGestures();
-    else await initGestures({ onNextTrack: nextRaveTrack });
+    else
+      await initGestures({
+        onNextTrack: nextRaveTrack,
+        backendBase: raveBackendBase,
+        sessionId: raveSessionId,
+      });
   }
   if (event.code === "KeyC") {
     m2Rig.visible = !m2Rig.visible;

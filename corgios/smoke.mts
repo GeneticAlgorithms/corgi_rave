@@ -34,9 +34,18 @@ const signal = await getTodaySignal();
 ok(signal.source === "fixture", "reads fixtures/day.md");
 ok(signal.text.includes("Northwind"), "fixture content loaded");
 
-console.log("\n== music (library backend, empty library) ==");
-const track = await getTrack("test-session", "drained", "n/a");
-ok(track === null, "returns null when library is empty (warns, does not throw)");
+console.log("\n== music (library backend) ==");
+const calm = await getTrack("test-session", "drained and quiet", "n/a");
+const hard = await getTrack("test-session", "wired and frayed", "n/a");
+const warm = await getTrack("test-session", "content", "n/a");
+if (calm === null) {
+  // No tracks installed — must degrade quietly rather than throw.
+  ok(hard === null && warm === null, "empty library returns null (warns, does not throw)");
+} else {
+  ok(/calm/.test(calm), `"drained and quiet" -> calm (${calm})`);
+  ok(/hard/.test(hard ?? ""), `"wired and frayed" -> hard (${hard})`);
+  ok(/warm/.test(warm ?? ""), `"content" -> warm (${warm})`);
+}
 
 console.log("\n== voice: TTS -> STT round trip ==");
 if (!process.env.ELEVENLABS_API_KEY) {
@@ -46,6 +55,61 @@ if (!process.env.ELEVENLABS_API_KEY) {
   ok(mp3.length > 5000, `TTS returned ${mp3.length} bytes`);
   const text = await transcribe(mp3);
   ok(/six meetings/i.test(text), `STT round-tripped: "${text}"`);
+}
+
+console.log("\n== gesture -> action (hands-free safety net) ==");
+{
+  const { startHttpServer } = await import("./src/http.ts");
+  const sessions = await import("./src/sessions.ts");
+
+  // Stub space that records what the corgi would have sent over iMessage.
+  const sent: string[] = [];
+  const stubSpace = {
+    id: "space-gesture-test",
+    send: async (c: unknown) => {
+      sent.push(String(c));
+      return undefined;
+    },
+  };
+  const session = sessions.create(stubSpace as never);
+
+  const server = startHttpServer();
+  await new Promise((r) => setTimeout(r, 300));
+  const base = `http://localhost:${process.env.PORT}`;
+
+  const post = async (body: unknown) => {
+    const res = await fetch(`${base}/gesture`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, json: await res.json() };
+  };
+
+  const bad = await post({ action: "nope", sessionId: session.id });
+  ok(bad.status === 400, `unknown action -> 400 (got ${bad.status})`);
+
+  const help = await post({ action: "help", sessionId: session.id });
+  ok(help.status === 200, `help -> 200 (got ${help.status})`);
+  ok(session.distress.active, "help armed the countdown");
+  ok(
+    sent.some((m) => /reaching|i'm here|stay with me/i.test(m)),
+    `corgi responded: ${JSON.stringify(sent.slice(0, 2))}`,
+  );
+  ok(sent.some((m) => /call 911/i.test(m)), "escalation warning includes the 911 clause");
+
+  const okRes = await post({ action: "ok", sessionId: session.id });
+  ok(okRes.status === 200, `ok -> 200 (got ${okRes.status})`);
+  ok(!session.distress.active, "thumbs-up cancelled the countdown");
+
+  const missing = await fetch(`${base}/gesture`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "help", sessionId: "nope" }),
+  });
+  ok(missing.status === 409, `unknown session -> 409 (got ${missing.status})`);
+
+  server.close();
 }
 
 console.log(fail === 0 ? "\nALL PASS\n" : `\n${fail} FAILED\n`);
