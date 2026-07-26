@@ -1966,6 +1966,17 @@ async function loadRaveTrack() {
 }
 if (raveMode) loadRaveTrack();
 
+// Hand control. Auto-starts with ?hands=1 so nobody has to know about the H
+// key; H still toggles it on and off at any point.
+const handOptions = () => ({
+  onNextTrack: nextRaveTrack,
+  backendBase: raveBackendBase,
+  sessionId: raveSessionId,
+});
+if (raveParams.get("hands") === "1") {
+  initGestures(handOptions()).catch((err) => console.error("[hand] autostart failed:", err));
+}
+
 // Swipe-to-skip. Pulls the library from the backend once, then cycles.
 let raveTrackList = null;
 let raveTrackIndex = 0;
@@ -2025,12 +2036,7 @@ window.addEventListener("keydown", async (event) => {
   if (event.code === "KeyH") {
     // Hand gestures: palm = intensify, fist = calm, swipe = next track.
     if (gestureState.enabled) stopGestures();
-    else
-      await initGestures({
-        onNextTrack: nextRaveTrack,
-        backendBase: raveBackendBase,
-        sessionId: raveSessionId,
-      });
+    else await initGestures(handOptions());
   }
   if (event.code === "KeyC") {
     m2Rig.visible = !m2Rig.visible;
