@@ -23,31 +23,3 @@ body {
   height: 100%;
   display: block;
 }
-
-#nox-overlay {
-  position: fixed;
-  left: 50%;
-  bottom: 5.5vh;
-  transform: translateX(-50%);
-  z-index: 10;
-  pointer-events: none;
-  font-family: "ASIX-FOUNDER", "Eurostile Extended", "Orbitron", sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(0.55rem, 2.4vw, 1.6rem);
-  line-height: 1;
-  color: #eaf3ff;
-  user-select: none;
-}
-
-#nox-overlay .nox-letter {
-  font-size: clamp(1.2rem, 3.5vw, 3rem);
-  letter-spacing: 0.08em;
-  color: #f3f9ff;
-  text-shadow:
-    0 0 10px rgba(189, 224, 255, 0.95),
-    0 0 24px rgba(146, 206, 255, 0.72),
-    0 0 48px rgba(112, 186, 255, 0.5),
-    0 0 80px rgba(94, 170, 255, 0.34);
-}
